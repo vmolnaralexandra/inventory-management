@@ -27,6 +27,40 @@
         </div>
       </div>
 
+      <div v-if="restockingOrders.length > 0" class="card">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedOrders') }} ({{ restockingOrders.length }})</h3>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ t('orders.table.orderNumber') }}</th>
+                <th>{{ t('orders.table.items') }}</th>
+                <th>{{ t('orders.table.totalCost') }}</th>
+                <th>{{ t('orders.table.leadTime') }}</th>
+                <th>{{ t('orders.table.createdDate') }}</th>
+                <th>{{ t('orders.table.expectedDelivery') }}</th>
+                <th>{{ t('orders.table.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="rst in restockingOrders" :key="rst.id">
+                <td><strong>{{ rst.order_number }}</strong></td>
+                <td>
+                  <div v-for="item in rst.items" :key="item.sku">{{ item.sku }} x {{ item.quantity }}</div>
+                </td>
+                <td><strong>{{ formatCurrencyWithDecimals(rst.total_cost, currentCurrency, 2) }}</strong></td>
+                <td>{{ rst.lead_time_days }}</td>
+                <td>{{ formatDate(rst.created_date) }}</td>
+                <td>{{ formatDate(rst.expected_delivery) }}</td>
+                <td><span class="badge info">{{ t('status.submitted') }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <h3 class="card-title">{{ t('orders.allOrders') }} ({{ orders.length }})</h3>
@@ -83,6 +117,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { api } from '../api'
 import { useFilters } from '../composables/useFilters'
 import { useI18n } from '../composables/useI18n'
+import { formatCurrencyWithDecimals } from '../utils/currency'
 
 export default {
   name: 'Orders',
@@ -95,6 +130,7 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const orders = ref([])
+    const restockingOrders = ref([])
 
     // Use shared filters
     const {
@@ -124,6 +160,17 @@ export default {
       }
     }
 
+    // Loaded separately so a failure here never breaks the customer orders view.
+    // The list is not affected by the shared filters, so it loads once on mount.
+    const loadRestockingOrders = async () => {
+      try {
+        restockingOrders.value = await api.getRestockingOrders()
+      } catch (err) {
+        restockingOrders.value = []
+        console.error('Failed to load restocking orders:', err)
+      }
+    }
+
     // Watch for filter changes and reload data
     watch([selectedPeriod, selectedLocation, selectedCategory, selectedStatus], () => {
       loadOrders()
@@ -146,20 +193,28 @@ export default {
     const formatDate = (dateString) => {
       const { currentLocale } = useI18n()
       const locale = currentLocale.value === 'ja' ? 'ja-JP' : 'en-US'
-      return new Date(dateString).toLocaleDateString(locale, {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return '-'
+      return date.toLocaleDateString(locale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
       })
     }
 
-    onMounted(loadOrders)
+    onMounted(() => {
+      loadOrders()
+      loadRestockingOrders()
+    })
 
     return {
       t,
       loading,
       error,
       orders,
+      restockingOrders,
+      currentCurrency,
+      formatCurrencyWithDecimals,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
